@@ -9,7 +9,7 @@ This tool automatically turns pictures of your recipes into organized digital te
 * **AI-Powered Text Recognition:** Extracts text from your images, even if they are messy screenshots.
 * **Smart Data Extraction:** Identifies the title, ingredients, directions, prep time, and more.
 * **Nutritional Estimates:** Calculates estimated nutritional facts per serving.
-* **Flexible Export:** Creates a `recipes.csv` file for easy import into recipe managers and can optionally save individual `.txt` files for each recipe.
+* **Flexible Export:** Creates a `recipes.csv` file for generic imports, a batch text file specifically for Plan to Eat, and can optionally save individual `.txt` files for each recipe.
 
 ## Getting Started: One-Time Setup
 
@@ -128,11 +128,18 @@ To also get a separate `.txt` file for each recipe, add the `-SaveAsPlainText` f
 ./Process-Recipe.ps1 -Path "/path/to/your/Recipes" -SaveAsPlainText
 ```
 
+**Example with PlanToTeach Batch Text File:**
+To also get a separate `.txt` file that includes a batch of recipes for import to PlanToEat, use `-SaveAsPlanToEatBatchFile`.
+```powershell
+./Process-Recipe.ps1 -Path "/path/to/your/Recipes" -SaveAsPlanToEatBatchFile
+```
+
 **Example with Tags:**
 To add "new" and "dessert" to every recipe, use `-BatchTags`.
 ```powershell
 ./Process-Recipe.ps1 -Path "/path/to/your/Recipes" -BatchTags "Family, Grandma"
 ```
+
 
 ## Troubleshooting
 

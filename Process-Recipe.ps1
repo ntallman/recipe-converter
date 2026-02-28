@@ -1,9 +1,9 @@
 <#
 .SYNOPSIS
-    A script to process recipe images, automatically detecting and grouping related images, confirming they are recipes with a two-pass verification system, generating structured data, and exporting it all to a single CSV file formatted for import into Plan to Eat.
+    A script to process recipe images, automatically detecting and grouping related images, confirming they are recipes with a two-pass verification system, generating structured data, and exporting it to various formats.
 
 .DESCRIPTION
-    This script takes an image file or a directory of image files as input. The recipe detection logic has been upgraded to perform a second, more detailed analysis if the first check is negative, reducing false negatives. It uses a sophisticated job manager to process recipes in parallel. This feature requires PowerShell 7 or newer. This version includes a sanitization step to convert special characters (e.g., ½, —, “) to standard ASCII equivalents (e.g., 1/2, -, ").
+    This script takes an image file or a directory of image files as input. The recipe detection logic has been upgraded to perform a second, more detailed analysis if the first check is negative, reducing false negatives. It uses a sophisticated job manager to process recipes in parallel. This feature requires PowerShell 7 or newer. This version includes a sanitization step to convert special characters (e.g., ½, —, “) to standard ASCII equivalents (e.g., 1/2, -, "). It can export to a CSV file, individual plain text files, or a single batch text file specifically formatted for Plan to Eat import.
 
 .PARAMETER Path
     The path to a single image file or a directory containing image files.
@@ -17,6 +17,9 @@
 .PARAMETER SaveAsPlainText
     If specified, the script will save a formatted plain text file for each successfully processed recipe in a 'text' sub-folder.
 
+.PARAMETER SaveAsPlanToEatBatchFile
+    If specified, the script will save a single `recipes_for_plan_to_eat.txt` file in the output directory, formatted for batch import into Plan to Eat.
+
 .EXAMPLE
     .\Process-Recipes.ps1 -Path "C:\Users\YourUser\Documents\Recipes" -BatchTags "new, from-phone" -SaveAsPlainText
 #>
@@ -26,7 +29,8 @@ param (
     [string]$Path,
     [int]$ThrottleLimit = 5,
     [string]$BatchTags,
-    [switch]$SaveAsPlainText
+    [switch]$SaveAsPlainText,
+    [switch]$SaveAsPlanToEatBatchFile
 )
 
 Write-Verbose "--- SCRIPT START ---"
@@ -34,6 +38,7 @@ Write-Verbose "Parameter -Path: $Path"
 Write-Verbose "Parameter -ThrottleLimit: $ThrottleLimit"
 Write-Verbose "Parameter -BatchTags: $BatchTags"
 Write-Verbose "Parameter -SaveAsPlainText: $($SaveAsPlainText.IsPresent)"
+Write-Verbose "Parameter -SaveAsPlanToEatBatchFile: $($SaveAsPlanToEatBatchFile.IsPresent)"
 Write-Verbose "--------------------"
 
 # --- CONFIGURATION ---
@@ -443,6 +448,84 @@ if ($SaveAsPlainText.IsPresent -and $processedRecipes.Count -gt 0) {
         }
     }
     Write-Host "Successfully saved $($processedRecipes.Count) plain text recipe files." -ForegroundColor Green
+}
+
+# Export to Plan to Eat Batch File if requested
+if ($SaveAsPlanToEatBatchFile.IsPresent -and $processedRecipes.Count -gt 0) {
+    $planToEatFilePath = Join-Path -Path $outputDirectory -ChildPath "recipes_for_plan_to_eat.txt"
+    Write-Host "`nCreating Plan to Eat batch import file: $planToEatFilePath" -ForegroundColor Cyan
+
+    $batchContent = [System.Text.StringBuilder]::new()
+
+    # Helper to append a line. It will always add the label, and the value if it exists.
+    $appendLine = {
+        param($Label, $Value)
+        $valueToAppend = if ([string]::IsNullOrWhiteSpace($Value)) { "" } else { " $Value" }
+        [void]$batchContent.AppendLine("${Label}:$valueToAppend")
+    }
+
+    $recipesToAdd = @($processedRecipes)
+    for ($i = 0; $i -lt $recipesToAdd.Count; $i++) {
+        $recipe = $recipesToAdd[$i]
+
+        # Map recipe properties to the Plan to Eat format
+        & $appendLine "Title" $recipe.Title
+        & $appendLine "Description" $recipe.Description
+        & $appendLine "Prep Time" $recipe.PrepTime
+        & $appendLine "Cook Time" $recipe.CookTime
+        & $appendLine "Serves" $recipe.Servings
+        & $appendLine "Course" $recipe.Course
+        & $appendLine "Cuisine" $recipe.Cuisine
+        & $appendLine "Main Ingredient" $recipe.MainIngredient
+        & $appendLine "Photo Url" $recipe.PhotoUrl
+        & $appendLine "source" $recipe.Source
+
+        # Tags require special formatting (caret separator)
+        $planToEatTags = ""
+        if (-not [string]::IsNullOrWhiteSpace($recipe.Tags)) {
+            $planToEatTags = ($recipe.Tags -split ',' | ForEach-Object { $_.Trim() }) -join ' ^ '
+        }
+        & $appendLine "tags" $planToEatTags
+
+        # Multi-line fields
+        [void]$batchContent.AppendLine("Ingredients:")
+        if (-not [string]::IsNullOrWhiteSpace($recipe.Ingredients)) {
+            [void]$batchContent.AppendLine($recipe.Ingredients)
+        }
+
+        [void]$batchContent.AppendLine("Directions:")
+        if (-not [string]::IsNullOrWhiteSpace($recipe.Directions)) {
+            [void]$batchContent.AppendLine($recipe.Directions)
+        }
+
+        # Nutritional information
+        & $appendLine "Nutritional Score" $recipe.'Nutritional Score (generic)'
+        & $appendLine "calories" $recipe.Calories
+        & $appendLine "fat" $recipe.Fat
+        & $appendLine "saturated fat" $recipe.SaturatedFat
+        & $appendLine "cholesterol" $recipe.Cholesterol
+        & $appendLine "sodium" $recipe.Sodium
+        & $appendLine "carbohydrate" $recipe.Carbohydrate
+        & $appendLine "fiber" $recipe.Fiber
+        & $appendLine "sugar" $recipe.Sugar
+        & $appendLine "protein" $recipe.Protein
+        & $appendLine "cost" $recipe.Cost
+
+        # Add separator if it's not the last recipe
+        if ($i -lt ($recipesToAdd.Count - 1)) {
+            [void]$batchContent.AppendLine("") # Blank line for spacing
+            [void]$batchContent.AppendLine("--------------")
+        }
+    }
+
+    try {
+        if ($batchContent.Length -gt 0) {
+            Set-Content -Path $planToEatFilePath -Value $batchContent.ToString() -Encoding utf8BOM
+            Write-Host "Successfully created Plan to Eat batch file with $($processedRecipes.Count) recipes." -ForegroundColor Green
+        }
+    } catch {
+        Write-Warning "Failed to save Plan to Eat batch file: $planToEatFilePath. Error: $_"
+    }
 }
 
 # --- Final, Comprehensive Report ---
